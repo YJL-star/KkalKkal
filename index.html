@@ -48,10 +48,10 @@
   /* ---------- Select screen ---------- */
   #screen-select {
     background-color: #20b4e0;
-    background-image: url('assets/grass.png');
+    background-image: url('assets/grass_mobile.png');
     background-repeat: repeat-x;
     background-position: bottom center;
-    background-size: auto 34%;
+    background-size: auto 50%;
     padding: 5% 6%;
     justify-content: flex-start;
   }
@@ -77,7 +77,7 @@
   /* dilli's artwork is a wide, short bat shape, so contain-fit leaves it noticeably
      smaller than the other characters; scale it up a little, but stay inside the card. */
   .char-card[data-id="dilli"] { position:relative; z-index:3; }
-  .char-card[data-id="dilli"] .portrait img { transform:scale(1.15); }
+  .char-card[data-id="dilli"] .portrait img { transform:scale(1.035); }
   .char-name { margin-top: 5%; font-weight:800; font-size: clamp(12px,3.2vw,16px); color:#161616; }
   .pillbtn {
     margin-top: 5%; padding: 3.4% 8%; font-size: clamp(14px,3.6vw,20px); font-weight:800; color:#fff;
@@ -113,20 +113,33 @@
     font-weight:900; font-size: clamp(16px,4vw,20px); color:#161616; cursor:pointer;
   }
   #closeBtn:active { transform: scale(0.92); }
-  .touch-hint {
-    position:absolute; left:50%; bottom:3%; transform:translateX(-50%);
-    background:rgba(22,22,22,0.55); color:#fff; font-weight:700;
-    font-size: clamp(10px,3vw,13px); padding:1.6% 4%; border-radius:20px;
-    white-space:nowrap; z-index:5; pointer-events:none; transition: opacity .5s;
+
+  /* Bottom control bar: dedicated pickup button + swipe zone for movement */
+  .control-bar {
+    position:absolute; left:0; right:0; bottom:2.5%; z-index:8;
+    display:flex; align-items:center; gap:3%; padding:0 4%;
   }
+  .pickup-btn {
+    flex-shrink:0; width:20vw; max-width:92px; min-width:60px; aspect-ratio:1;
+    border:none; padding:0; background:none; cursor:pointer; touch-action:none;
+  }
+  .pickup-btn img { width:100%; height:100%; display:block; }
+  .pickup-btn:active { transform:scale(0.92); }
+  .swipe-zone {
+    flex:1; height:10.4vw; max-height:46px; min-height:35px;
+    display:flex; align-items:center; justify-content:center;
+    touch-action:none; transition: filter .1s;
+  }
+  .swipe-zone img { width:90%; height:100%; display:block; object-fit:fill; pointer-events:none; }
+  .swipe-zone.active { filter: brightness(0.92) saturate(1.3); }
 
   /* ---------- Result screen ---------- */
   #screen-result {
     background-color: #20b4e0;
-    background-image: url('assets/grass.png');
+    background-image: url('assets/grass_mobile.png');
     background-repeat: repeat-x;
     background-position: bottom center;
-    background-size: auto 30%;
+    background-size: auto 50%;
     justify-content:center; padding: 6%;
   }
   .result-title { font-size: clamp(20px,6.5vw,32px); font-weight:900; color:#161616; text-align:center; }
@@ -140,7 +153,7 @@
   .scoreboard-text span { font-family: 'GMarketSans', 'Courier New', monospace; font-weight:700; font-size: clamp(22px,7.5vw,44px); letter-spacing:1px; }
   .scoreboard-text .num { color:#f5d94a; text-shadow:0 0 8px rgba(245,217,74,.6); }
   .scoreboard-text .ok { color:#f0603f; margin-left:6px; }
-  .btn-row { margin-top:7%; display:flex; flex-direction:column; gap:4%; z-index:2; align-items:center; width:70%; }
+  .btn-row { margin-top:7%; display:flex; flex-direction:column; gap:8%; z-index:2; align-items:center; width:70%; }
   .img-btn { padding:0; border:none; background:none; cursor:pointer; width:100%; max-width:280px; transition: transform .08s; }
   .img-btn img { width:100%; height:auto; display:block; }
   .img-btn:active { transform: translateY(4px) scale(0.98); }
@@ -170,7 +183,12 @@
         <div class="pill">⏱ <span id="hudTime">40 초</span></div>
       </div>
       <div id="closeBtn">✕</div>
-      <div class="touch-hint" id="touchHint">◀ ▶ 드래그로 이동 · 화면 탭으로 줍기</div>
+      <div class="control-bar">
+        <button id="pickupBtn" class="pickup-btn"><img src="assets/btn_get.png" alt="줍기"></button>
+        <div class="swipe-zone" id="swipeZone">
+          <img src="assets/swipe_bar.png" alt="좌우로 스와이프">
+        </div>
+      </div>
     </div>
 
     <!-- ============ RESULT SCREEN ============ -->
@@ -310,7 +328,6 @@ const ctx = canvas.getContext('2d');
 const hudStage = document.getElementById('hudStage');
 const hudScore = document.getElementById('hudScore');
 const hudTime = document.getElementById('hudTime');
-const touchHint = document.getElementById('touchHint');
 
 let G = null; // active game state
 let rafId = null;
@@ -343,7 +360,6 @@ function startGameFromStage(stageNum){
   hudScore.textContent = `0 / ${cfg.target}`;
   hudTime.textContent = `${TIME_LIMIT} 초`;
   showScreen('game');
-  if(touchHint){ touchHint.style.opacity='1'; clearTimeout(touchHint._t); touchHint._t=setTimeout(()=>{ touchHint.style.opacity='0'; }, 3200); }
   lastT = performance.now();
   if(rafId) cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(loop);
@@ -375,44 +391,45 @@ window.addEventListener('keyup', (e)=>{
 });
 
 /* ---------- input: touch/pointer (primary mobile control) -------------
-   Drag left/right anywhere on the game screen to move the character;
-   a quick tap (little movement, short duration) picks up trash instead. */
-const DRAG_SENSITIVITY = 2.4;   // full-width drag ~= full -1..1 range
-const TAP_MOVE_PX = 10;         // max movement (in displayed px) still counted as a tap
-const TAP_MAX_MS = 350;
-let ptrActive=false, ptrId=null, ptrStartX=0, ptrStartPlayerX=0, ptrStartT=0, ptrMoved=false;
+   Drag left/right inside the bottom swipe zone to move the character;
+   tap the pickup button to collect trash. */
+const DRAG_SENSITIVITY = 2.4;   // full swipe-zone-width drag ~= full -1..1 range
+let ptrActive=false, ptrId=null, ptrStartX=0, ptrStartPlayerX=0;
 
-const gameScreenEl = document.getElementById('screen-game');
+const swipeZoneEl = document.getElementById('swipeZone');
+const pickupBtnEl = document.getElementById('pickupBtn');
 
-gameScreenEl.addEventListener('pointerdown', (e)=>{
+swipeZoneEl.addEventListener('pointerdown', (e)=>{
   if(!G || G.inputLocked) return;
-  if(e.target && e.target.id === 'closeBtn') return;
   ptrActive = true; ptrId = e.pointerId;
-  ptrStartX = e.clientX; ptrStartPlayerX = G.playerX; ptrStartT = performance.now(); ptrMoved = false;
-  try{ gameScreenEl.setPointerCapture(e.pointerId); }catch(err){}
+  ptrStartX = e.clientX; ptrStartPlayerX = G.playerX;
+  swipeZoneEl.classList.add('active');
+  try{ swipeZoneEl.setPointerCapture(e.pointerId); }catch(err){}
   e.preventDefault();
 });
 
-gameScreenEl.addEventListener('pointermove', (e)=>{
+swipeZoneEl.addEventListener('pointermove', (e)=>{
   if(!ptrActive || e.pointerId!==ptrId || !G || G.inputLocked) return;
   const dx = e.clientX - ptrStartX;
-  if(Math.abs(dx) > TAP_MOVE_PX) ptrMoved = true;
-  const stageW = canvas.clientWidth || 1;
-  const relXDelta = (dx / stageW) * DRAG_SENSITIVITY;
+  const zoneW = swipeZoneEl.clientWidth || 1;
+  const relXDelta = (dx / zoneW) * DRAG_SENSITIVITY;
   G.playerX = Math.max(-1, Math.min(1, ptrStartPlayerX + relXDelta));
   e.preventDefault();
 });
 
-function endPointer(e){
+function endSwipePointer(e){
   if(!ptrActive || e.pointerId!==ptrId) return;
   ptrActive = false;
-  const dt = performance.now() - ptrStartT;
-  if(G && !G.inputLocked && !ptrMoved && dt < TAP_MAX_MS){
-    tryCollect();
-  }
+  swipeZoneEl.classList.remove('active');
 }
-gameScreenEl.addEventListener('pointerup', endPointer);
-gameScreenEl.addEventListener('pointercancel', endPointer);
+swipeZoneEl.addEventListener('pointerup', endSwipePointer);
+swipeZoneEl.addEventListener('pointercancel', endSwipePointer);
+
+pickupBtnEl.addEventListener('pointerdown', (e)=>{
+  e.preventDefault();
+  if(!G || G.inputLocked) return;
+  tryCollect();
+});
 
 function tryCollect(){
   let best=null, bestD=999;
@@ -718,9 +735,10 @@ function drawPopups(){
   for(const p of G.popups){
     const alpha = Math.max(0,p.life/0.7);
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = p.text==='+10' ? '#f5d94a' : '#5fb3d6';
-    ctx.strokeStyle='#161616'; ctx.lineWidth=3;
-    ctx.font='bold 26px sans-serif';
+    const isScore = p.text==='+10';
+    ctx.fillStyle = isScore ? '#f5d94a' : '#5fb3d6';
+    ctx.strokeStyle='#161616'; ctx.lineWidth = isScore ? 6 : 3;
+    ctx.font = isScore ? 'bold 52px sans-serif' : 'bold 26px sans-serif';
     const yOff = (0.7-p.life)*36;
     ctx.strokeText(p.text, p.x, p.y-yOff);
     ctx.fillText(p.text, p.x, p.y-yOff);
