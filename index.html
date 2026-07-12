@@ -359,6 +359,11 @@ const treeImages = TREE_SRCS.map(src=>{ const img=new Image(); img.src=src; retu
 const TRASH_SRCS=[1,2,3,4,5,6,7,8].map(i=>`assets/trash${i}.png`);
 const trashImages = TRASH_SRCS.map(src=>{ const img=new Image(); img.src=src; return img; });
 
+// Preload the result-screen scoreboard image early so it's already cached by
+// the time the result screen first appears (see adjustResultGrass()).
+const scoreboardPreload = new Image();
+scoreboardPreload.src = 'assets/scoreboard.png';
+
 /* ================= Constants =================
    Portrait canvas: narrower (0.6x) and taller (1.6x) than the desktop
    900x600 version. K scales "near-field" pixel sizes (sprites/objects)
@@ -762,14 +767,30 @@ function adjustResultGrass(){
   const screenEl = document.getElementById('screen-result');
   const scoreboardEl = screenEl && screenEl.querySelector('.scoreboard');
   if(!screenEl || !scoreboardEl) return;
-  const screenRect = screenEl.getBoundingClientRect();
-  const screenH = screenRect.height || screenEl.clientHeight;
-  if(!screenH) return;
-  const sbRect = scoreboardEl.getBoundingClientRect();
-  const sbCenterY = (sbRect.top + sbRect.bottom)/2 - screenRect.top;
-  const grassHeightPx = screenH - sbCenterY;
-  const pct = Math.max(20, Math.min(92, (grassHeightPx/screenH)*100));
-  screenEl.style.backgroundSize = `auto ${pct}%`;
+
+  function measure(){
+    const screenRect = screenEl.getBoundingClientRect();
+    const screenH = screenRect.height || screenEl.clientHeight;
+    if(!screenH) return;
+    const sbRect = scoreboardEl.getBoundingClientRect();
+    const sbCenterY = (sbRect.top + sbRect.bottom)/2 - screenRect.top;
+    const grassHeightPx = screenH - sbCenterY;
+    const pct = Math.max(20, Math.min(92, (grassHeightPx/screenH)*100));
+    screenEl.style.backgroundSize = `auto ${pct}%`;
+  }
+
+  // The scoreboard's height comes entirely from its <img> (scoreboard.png),
+  // which has no explicit width/height attributes. The very first time this
+  // screen is shown, that image may not have finished loading yet, so its
+  // box briefly measures near-zero height - this made the grass line get
+  // fixed too high, leaving the (once the image finished loading a moment
+  // later) fully-sized scoreboard looking like it was floating in the sky.
+  // Re-measure once the image actually finishes loading to correct for this.
+  const scoreboardImg = scoreboardEl.querySelector('img');
+  if(scoreboardImg && !scoreboardImg.complete){
+    scoreboardImg.addEventListener('load', measure, { once:true });
+  }
+  measure();
 }
 window.addEventListener('resize', ()=>{
   if(screens.result.classList.contains('active')) adjustResultGrass();
