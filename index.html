@@ -172,7 +172,7 @@
   /* ---------- Game screen ---------- */
   #screen-game { justify-content:flex-start; }
   #gameCanvas { width:100%; height:100%; display:block; touch-action:none; }
-  .hud { position:absolute; top:3%; left:50%; transform:translateX(-50%); display:flex; gap:2.5%; z-index:5; }
+  .hud { position:absolute; top:3%; left:50%; transform:translateX(-50%); display:flex; gap:2.5vw; z-index:5; }
   .hud .pill {
     background:#f5efe0; border:3px solid #161616; border-radius:30px;
     padding: 2% 3.6%; font-weight:800; font-size: clamp(10px,3vw,14px); color:#161616;
@@ -475,20 +475,28 @@ function loadSfxBuffer(name, url){
 loadSfxBuffer('get', 'assets/get.mp3');
 loadSfxBuffer('pool', 'assets/pool.mp3');
 
+// iOS (Safari/WKWebView) mixes the Web Audio API graph quieter than a
+// concurrently-playing <audio> element, so buffer-based SFX end up sounding
+// noticeably softer than on Android/Chrome. Boost only on iOS so Galaxy/
+// other devices - where the volume is already right - stay untouched.
+const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IOS_SFX_BOOST = 1.6;
+
 function playSfxBuffer(name, vol){
   if(!soundOn) return;
   const buf = sfxBuffers[name];
+  const baseVol = vol!=null ? vol : 0.6;
   if(!audioCtx || !buf){
     // buffer not decoded yet (e.g. very first moments after page load) -
     // fall back to the plain Audio() path just this once.
-    playSfx(`assets/${name}.mp3`, vol);
+    playSfx(`assets/${name}.mp3`, baseVol);
     return;
   }
   try{
     const src = audioCtx.createBufferSource();
     src.buffer = buf;
     const gain = audioCtx.createGain();
-    gain.gain.value = vol!=null ? vol : 0.6;
+    gain.gain.value = isIOS ? baseVol * IOS_SFX_BOOST : baseVol;
     src.connect(gain).connect(audioCtx.destination);
     src.start(0);
   }catch(err){}
